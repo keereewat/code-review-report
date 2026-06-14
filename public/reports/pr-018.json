@@ -1,0 +1,50 @@
+{
+  "id": "pr-018",
+  "title": "PDF Invoice Generator",
+  "repository": "billing-service",
+  "branch": "feature/pdf-invoices",
+  "commitId": "r3s6t12",
+  "pullRequestId": "PR-1455",
+  "reviewDate": "2026-06-04",
+  "reportedBy": "Alex",
+  "summary": {
+    "overview": "This PR adds a PDF invoice generation capability to the billing service, supporting both single and batch invoice creation. The implementation leverages a well-structured template system and follows existing service patterns closely. Code quality is excellent with thorough test coverage and clean separation of concerns.",
+    "score": 93
+  },
+  "filesChanged": [
+    { "file": "src/services/pdf-invoice.service.ts", "additions": 198, "deletions": 0 },
+    { "file": "src/templates/invoice.template.ts", "additions": 142, "deletions": 0 },
+    { "file": "src/controllers/invoice.controller.ts", "additions": 67, "deletions": 4 },
+    { "file": "tests/services/pdf-invoice.service.spec.ts", "additions": 256, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Low",
+    "summary": "The change is well-contained within the billing domain with no modifications to existing business logic. The PDF generation library is a mature, widely-used dependency with no known vulnerabilities.",
+    "items": [
+      "New dependency on pdfkit library adds ~2MB to the service bundle size",
+      "Large batch invoice generation could increase memory usage temporarily"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Template system cleanly separates presentation from business logic, making it easy to update invoice layouts without touching service code",
+      "Batch generation uses streaming to keep memory usage constant regardless of invoice count",
+      "Comprehensive test suite covers edge cases including multi-currency formatting, tax calculation rounding, and empty line items",
+      "Follows the existing controller-service-repository pattern established in the billing service codebase",
+      "Proper error handling with domain-specific exceptions that map to appropriate HTTP status codes",
+      "Invoice number generation is thread-safe and guarantees uniqueness using the existing sequence generator"
+    ],
+    "issues": [
+      {
+        "severity": "Low",
+        "file": "src/templates/invoice.template.ts",
+        "message": "The company logo path is hardcoded as a relative file path which may not resolve correctly in containerized deployments where the working directory differs.",
+        "recommendation": "Use path.resolve with __dirname or load the logo from the existing asset configuration to ensure consistent resolution across all deployment environments."
+      }
+    ]
+  },
+  "recommendations": [
+    "Add a configurable file size limit for batch PDF generation to prevent potential memory issues with extremely large batches in production",
+    "Consider adding PDF/A compliance for invoices that may need long-term archival per regulatory requirements"
+  ]
+}

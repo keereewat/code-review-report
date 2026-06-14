@@ -1,0 +1,100 @@
+{
+  "id": "pr-002",
+  "title": "Flight Booking Service",
+  "repository": "flight-booking-api",
+  "branch": "feature/booking-engine",
+  "commitId": "b7e2d45",
+  "pullRequestId": "PR-892",
+  "reviewDate": "2026-06-10",
+  "reportedBy": "Sarah",
+  "summary": {
+    "overview": "This PR introduces the core flight booking engine with seat selection, fare calculation, and PNR generation capabilities. While the business logic is comprehensive and the domain model is well-designed, there are significant performance and concurrency issues that need to be resolved before this can handle production traffic. The current implementation would likely degrade under load due to N+1 query patterns and missing caching for frequently accessed reference data.",
+    "score": 72
+  },
+  "filesChanged": [
+    { "file": "src/Services/BookingService.cs", "additions": 285, "deletions": 0 },
+    { "file": "src/Services/FareCalculationService.cs", "additions": 178, "deletions": 0 },
+    { "file": "src/Services/SeatSelectionService.cs", "additions": 124, "deletions": 0 },
+    { "file": "src/Controllers/BookingController.cs", "additions": 95, "deletions": 0 },
+    { "file": "src/Models/Booking.cs", "additions": 62, "deletions": 0 },
+    { "file": "src/Models/FlightSegment.cs", "additions": 44, "deletions": 0 },
+    { "file": "src/Models/Passenger.cs", "additions": 38, "deletions": 0 },
+    { "file": "src/Repositories/BookingRepository.cs", "additions": 156, "deletions": 0 },
+    { "file": "src/Repositories/FlightRepository.cs", "additions": 89, "deletions": 0 },
+    { "file": "tests/BookingServiceTests.cs", "additions": 312, "deletions": 0 },
+    { "file": "tests/FareCalculationTests.cs", "additions": 198, "deletions": 0 },
+    { "file": "src/Migrations/20260610_AddBookingTables.cs", "additions": 74, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "High",
+    "summary": "The booking engine handles financial transactions and seat inventory, making correctness and concurrency critical. The identified N+1 query patterns will cause significant database load under production traffic, and the race condition in seat selection could lead to double-booking scenarios that require costly manual intervention.",
+    "items": [
+      "N+1 query pattern in BookingRepository will generate excessive database calls when loading bookings with passengers and segments",
+      "Race condition in SeatSelectionService allows two concurrent requests to reserve the same seat",
+      "No caching layer for flight schedule and fare rule lookups that rarely change but are queried on every booking",
+      "Missing database transaction scope around the multi-step booking creation process",
+      "Fare calculation does not account for currency conversion edge cases with multi-leg international flights"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Well-designed domain model with clear separation between Booking, FlightSegment, and Passenger entities following DDD principles",
+      "Comprehensive fare calculation logic with proper handling of taxes, surcharges, and promotional discounts",
+      "Thorough unit test coverage for fare calculation edge cases including infant pricing, group discounts, and seasonal rates",
+      "Clean controller implementation with proper use of ActionResult types and Swagger documentation attributes"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "src/Repositories/BookingRepository.cs",
+        "message": "The GetBookingWithDetailsAsync method loads passengers and flight segments in separate queries within a foreach loop, resulting in N+1 query patterns. For a booking with 4 passengers and 3 segments, this generates 8 database round-trips instead of 1.",
+        "recommendation": "Use EF Core eager loading with .Include(b => b.Passengers).Include(b => b.Segments) or implement a single raw SQL query with joins. For list endpoints, use projection queries that only select required fields."
+      },
+      {
+        "severity": "High",
+        "file": "src/Services/SeatSelectionService.cs",
+        "message": "The ReserveSeatAsync method checks seat availability and then reserves it in two separate operations without any locking mechanism. Under concurrent load, two requests can both see a seat as available and attempt to reserve it, leading to double-booking.",
+        "recommendation": "Implement optimistic concurrency using a row version column on the SeatInventory table, or use a distributed lock (e.g., Redis-based) around the check-and-reserve operation. Add a unique constraint on (FlightId, SeatNumber, BookingDate) as a safety net."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Services/FareCalculationService.cs",
+        "message": "Fare rules and tax rates are fetched from the database on every calculation request. These reference data sets change infrequently (typically updated weekly) but are queried hundreds of times per minute during peak booking periods.",
+        "recommendation": "Introduce an IMemoryCache or IDistributedCache layer for fare rules and tax rates with a 15-minute sliding expiration. Add a cache invalidation endpoint for operations teams to refresh when rate updates are published."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Services/BookingService.cs",
+        "message": "The CreateBookingAsync method performs multiple database writes (booking record, passenger records, seat reservations, payment hold) without wrapping them in a single transaction scope. A failure midway through leaves the booking in an inconsistent state.",
+        "recommendation": "Wrap the entire booking creation flow in a TransactionScope or use EF Core's BeginTransactionAsync. Implement a saga pattern or compensating transactions for operations that span multiple services."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Services/FareCalculationService.cs",
+        "message": "Multi-currency fare calculations convert each segment independently using spot rates without considering that the total fare should be presented in the passenger's preferred currency. Rounding errors accumulate across segments.",
+        "recommendation": "Calculate all fares in a base currency first, then perform a single conversion to the display currency at the end. Use decimal precision of at least 4 places for intermediate calculations and round only on the final total."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Controllers/BookingController.cs",
+        "message": "The search endpoint accepts unbounded date ranges and does not limit the number of results returned. A request with a wide date range could return thousands of bookings and cause memory pressure on the API server.",
+        "recommendation": "Add pagination with a default page size of 50 and a maximum of 200. Enforce a maximum date range of 90 days on the search endpoint and return 400 Bad Request for wider ranges."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Models/Booking.cs",
+        "message": "The PNR (Passenger Name Record) generation uses a simple sequential counter format that is predictable and could allow enumeration of booking references by external parties.",
+        "recommendation": "Generate PNR codes using a cryptographically random alphanumeric string of 6 characters following IATA standards. Ensure uniqueness via a database constraint and retry on collision."
+      }
+    ]
+  },
+  "recommendations": [
+    "Resolve the N+1 query patterns before merging by implementing eager loading or projection queries for all repository methods",
+    "Add optimistic concurrency or distributed locking to the seat selection flow to prevent double-booking under concurrent load",
+    "Implement a caching layer for reference data (fare rules, tax rates, airport codes) with configurable expiration",
+    "Wrap multi-step booking creation in a database transaction to ensure atomicity",
+    "Add load testing with k6 or NBomber to validate performance under expected peak booking volumes (target: 500 concurrent bookings)",
+    "Implement pagination on all list/search endpoints with sensible defaults and maximum limits",
+    "Add a correlation ID to all booking operations for end-to-end tracing across the booking, payment, and inventory services"
+  ]
+}

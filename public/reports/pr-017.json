@@ -1,0 +1,87 @@
+{
+  "id": "pr-017",
+  "title": "GraphQL Schema Migration",
+  "repository": "graphql-gateway",
+  "branch": "feature/schema-v3",
+  "commitId": "q2r5s01",
+  "pullRequestId": "PR-2890",
+  "reviewDate": "2026-05-22",
+  "reportedBy": "Maria",
+  "summary": {
+    "overview": "This PR migrates the GraphQL schema from v2 to v3, introducing new query patterns and restructuring several core types. While the new schema design is cleaner and better aligned with domain boundaries, multiple breaking changes have been introduced without deprecation notices or a migration path for existing clients. A phased rollout strategy is strongly recommended.",
+    "score": 70
+  },
+  "filesChanged": [
+    { "file": "schema/types/user.graphql", "additions": 45, "deletions": 78 },
+    { "file": "schema/types/order.graphql", "additions": 112, "deletions": 94 },
+    { "file": "schema/types/product.graphql", "additions": 67, "deletions": 53 },
+    { "file": "schema/queries/user-queries.graphql", "additions": 34, "deletions": 41 },
+    { "file": "schema/queries/order-queries.graphql", "additions": 58, "deletions": 29 },
+    { "file": "schema/mutations/order-mutations.graphql", "additions": 43, "deletions": 37 },
+    { "file": "src/resolvers/user.resolver.ts", "additions": 89, "deletions": 112 },
+    { "file": "src/resolvers/order.resolver.ts", "additions": 156, "deletions": 98 },
+    { "file": "src/resolvers/product.resolver.ts", "additions": 73, "deletions": 61 },
+    { "file": "src/middleware/schema-versioning.middleware.ts", "additions": 124, "deletions": 0 },
+    { "file": "tests/resolvers/user.resolver.spec.ts", "additions": 87, "deletions": 134 },
+    { "file": "tests/resolvers/order.resolver.spec.ts", "additions": 145, "deletions": 98 },
+    { "file": "docs/schema-migration-guide.md", "additions": 210, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "High",
+    "summary": "Multiple breaking changes to the public GraphQL schema will impact all downstream consumers including the mobile app, partner integrations, and the internal dashboard. No deprecation period or versioned endpoint strategy is in place.",
+    "items": [
+      "Renamed fields on User and Order types will break all existing client queries",
+      "Removed deprecated query endpoints without verifying zero traffic from analytics",
+      "No schema versioning strategy to run v2 and v3 in parallel during migration",
+      "Mobile app release cycle is 2 weeks, requiring coordinated deployment",
+      "Partner API consumers have no advance notice of breaking changes"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "The new schema design correctly models domain aggregates and reduces over-fetching by 40% based on query analysis",
+      "Schema versioning middleware is a well-designed foundation for future non-breaking migrations",
+      "Migration guide documentation is thorough and includes concrete query transformation examples"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "schema/types/user.graphql",
+        "message": "The 'fullName' field was renamed to 'displayName' and 'emailAddress' to 'email' without adding @deprecated directives on the old fields, which will immediately break all existing client queries.",
+        "recommendation": "Keep the old field names with @deprecated(reason: \"Use displayName instead. Will be removed in v4.\") directives and maintain both for at least two release cycles."
+      },
+      {
+        "severity": "High",
+        "file": "schema/queries/order-queries.graphql",
+        "message": "The 'ordersByUser' query was removed entirely and replaced with 'orders(filter: OrderFilter)' without a deprecation period, breaking the mobile app's order history screen.",
+        "recommendation": "Restore 'ordersByUser' as a deprecated alias that internally delegates to the new 'orders' query with the appropriate filter, and coordinate removal with the mobile team."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/resolvers/order.resolver.ts",
+        "message": "The new OrderFilter resolver does not validate enum values for 'status' field, allowing invalid filter combinations that return empty results without error.",
+        "recommendation": "Add input validation in the resolver that returns a GraphQL user error for unrecognized status values rather than silently returning empty results."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/middleware/schema-versioning.middleware.ts",
+        "message": "The versioning middleware reads the schema version from a custom header but does not fall back gracefully when the header is absent, defaulting to v3 which breaks unaware clients.",
+        "recommendation": "Default to v2 when the X-Schema-Version header is missing to maintain backward compatibility, and log a warning to track clients that need updating."
+      },
+      {
+        "severity": "Low",
+        "file": "tests/resolvers/user.resolver.spec.ts",
+        "message": "Test coverage dropped from 94% to 76% because tests for the deprecated field mappings were deleted rather than updated.",
+        "recommendation": "Restore tests that verify deprecated fields still resolve correctly during the transition period to prevent regressions."
+      }
+    ]
+  },
+  "recommendations": [
+    "Implement a dual-schema serving strategy that supports both v2 and v3 simultaneously for a minimum of 30 days",
+    "Add @deprecated directives to all renamed or restructured fields before removing the originals",
+    "Verify zero traffic on deprecated endpoints using the API analytics dashboard before removal",
+    "Coordinate the migration timeline with the mobile team to align with their bi-weekly release cycle",
+    "Send a schema change notification to all registered partner API consumers at least 14 days before deprecation",
+    "Add integration tests that validate v2 queries still resolve correctly through the versioning middleware"
+  ]
+}

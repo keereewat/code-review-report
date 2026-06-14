@@ -1,0 +1,94 @@
+{
+  "id": "pr-007",
+  "title": "Customer Profile API Migration",
+  "repository": "customer-profile-api",
+  "branch": "feature/profile-v2-migration",
+  "commitId": "g2h5i90",
+  "pullRequestId": "PR-1789",
+  "reviewDate": "2026-06-02",
+  "reportedBy": "James",
+  "summary": {
+    "overview": "This PR migrates the customer profile API from v1 to v2, introducing a new normalized data model and updated REST endpoints. While the new schema design is sound, the migration lacks a rollback strategy and introduces several breaking changes to existing consumers. The scope of changes across 14 files warrants careful staged rollout with backward-compatibility shims.",
+    "score": 69
+  },
+  "filesChanged": [
+    { "file": "src/models/CustomerProfile.ts", "additions": 98, "deletions": 45 },
+    { "file": "src/models/ProfileAddress.ts", "additions": 52, "deletions": 0 },
+    { "file": "src/models/ProfilePreferences.ts", "additions": 67, "deletions": 0 },
+    { "file": "src/controllers/ProfileController.ts", "additions": 134, "deletions": 89 },
+    { "file": "src/controllers/ProfileMigrationController.ts", "additions": 201, "deletions": 0 },
+    { "file": "src/services/ProfileService.ts", "additions": 156, "deletions": 72 },
+    { "file": "src/services/MigrationService.ts", "additions": 189, "deletions": 0 },
+    { "file": "src/repositories/ProfileRepository.ts", "additions": 88, "deletions": 64 },
+    { "file": "src/middleware/profileVersionRouter.ts", "additions": 45, "deletions": 0 },
+    { "file": "src/validators/ProfileValidator.ts", "additions": 73, "deletions": 31 },
+    { "file": "migrations/20260601_profile_v2_schema.sql", "additions": 112, "deletions": 0 },
+    { "file": "tests/controllers/ProfileController.test.ts", "additions": 167, "deletions": 98 },
+    { "file": "tests/services/MigrationService.test.ts", "additions": 143, "deletions": 0 },
+    { "file": "docs/api/profile-v2-migration-guide.md", "additions": 89, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "High",
+    "summary": "The migration introduces breaking changes to the profile API contract affecting multiple downstream consumers. The absence of a rollback mechanism for the data migration poses a significant risk to production data integrity.",
+    "items": [
+      "No rollback migration script provided for the v2 schema changes",
+      "Breaking changes to GET /api/profile response shape without versioned endpoint support",
+      "Downstream services consuming profile events have not been updated for the new payload format",
+      "Data migration runs synchronously which could cause extended downtime for large datasets",
+      "Missing validation for partially migrated profiles during the transition window"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Well-normalized data model in v2 eliminates data duplication present in the v1 schema",
+      "Comprehensive migration guide documentation included in the PR",
+      "Strong test coverage for the new MigrationService with edge case handling"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "src/services/MigrationService.ts",
+        "message": "Data migration has no rollback mechanism. If the migration fails midway, partially migrated records will be left in an inconsistent state with no way to revert.",
+        "recommendation": "Implement a reversible migration pattern with a corresponding down migration script and transaction boundaries around batch operations."
+      },
+      {
+        "severity": "High",
+        "file": "src/controllers/ProfileController.ts",
+        "message": "The v2 response shape removes the 'fullName' field and restructures 'address' into a nested object, breaking all existing API consumers without a deprecation period.",
+        "recommendation": "Introduce API versioning via URL path or Accept header, maintain the v1 endpoint with a deprecation notice, and provide a minimum 90-day migration window."
+      },
+      {
+        "severity": "Medium",
+        "file": "migrations/20260601_profile_v2_schema.sql",
+        "message": "The ALTER TABLE statements lack explicit lock timeout configuration, which could cause table-level locks on large production datasets during migration.",
+        "recommendation": "Use online DDL strategies such as pt-online-schema-change or gh-ost to avoid extended table locks during the schema migration."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/services/ProfileService.ts",
+        "message": "Profile update operations do not validate whether the record has been fully migrated to v2 before applying v2-format writes, risking data corruption during the transition period.",
+        "recommendation": "Add a migration status check before write operations and route to the appropriate handler based on the profile's current schema version."
+      },
+      {
+        "severity": "Low",
+        "file": "src/validators/ProfileValidator.ts",
+        "message": "Validation error messages expose internal field mapping details that could leak implementation specifics to API consumers.",
+        "recommendation": "Use consumer-facing error codes and messages that map to the public API contract rather than internal schema field names."
+      },
+      {
+        "severity": "Low",
+        "file": "src/middleware/profileVersionRouter.ts",
+        "message": "The version detection logic falls back to v2 when no version header is present, which will break existing clients that do not send version headers.",
+        "recommendation": "Default to v1 for unversioned requests and require explicit opt-in to v2 via the API-Version header."
+      }
+    ]
+  },
+  "recommendations": [
+    "Create a reversible down migration script and validate it against a production-sized dataset clone before deployment",
+    "Implement API versioning with concurrent v1 and v2 endpoint support during the transition period",
+    "Add a feature flag to control the migration rollout and enable per-tenant staged migration",
+    "Run the data migration as an async background job with progress tracking rather than a synchronous operation",
+    "Set up monitoring dashboards for migration progress, error rates, and partially migrated profile counts",
+    "Coordinate with downstream service teams to update their consumers before deprecating v1 endpoints"
+  ]
+}

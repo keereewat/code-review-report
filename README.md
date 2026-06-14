@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Code Review Report Portal
+
+A static website for displaying AI-generated code review reports. Built with Next.js, TypeScript, TailwindCSS, and shadcn/ui.
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build for Production
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+Static files are exported to the `out/` directory. Serve with any static file server:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npx serve out
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+  app/
+    page.tsx                 # Report list page
+    not-found.tsx            # 404 page
+    report/[id]/page.tsx     # Report detail page
+  components/
+    report/                  # Report-specific components
+    ui/                      # shadcn/ui components
+  lib/
+    types.ts                 # TypeScript types
+    report-loader.ts         # Data loading utilities
+public/
+  reports/
+    index.json               # Report index
+    pr-001.json ... pr-010.json  # Individual reports
+```
 
-## Deploy on Vercel
+## Adding Reports
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Create a new JSON file in `public/reports/` following the `ReviewReport` schema in `src/lib/types.ts`
+2. Add an entry to `public/reports/index.json`
+3. Rebuild the project
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Tech Stack
+
+- Next.js 16 (App Router, Static Export)
+- TypeScript
+- TailwindCSS 4
+- shadcn/ui
+- Lucide Icons

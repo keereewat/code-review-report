@@ -1,0 +1,86 @@
+{
+  "id": "pr-010",
+  "title": "Travel Package Aggregation Service",
+  "repository": "travel-package-api",
+  "branch": "feature/package-aggregator",
+  "commitId": "j5k8l34",
+  "pullRequestId": "PR-1567",
+  "reviewDate": "2026-06-07",
+  "reportedBy": "Nina",
+  "summary": {
+    "overview": "This PR introduces a travel package aggregation service that compiles flight, hotel, and activity offerings from multiple supplier APIs into unified package bundles. The aggregation logic is well-designed, but the service suffers from N+1 query patterns in the pricing engine and lacks timeout configuration on external supplier API calls, posing reliability risks under load.",
+    "score": 75
+  },
+  "filesChanged": [
+    { "file": "src/aggregator/PackageAggregator.ts", "additions": 234, "deletions": 0 },
+    { "file": "src/aggregator/SupplierAdapter.ts", "additions": 156, "deletions": 0 },
+    { "file": "src/pricing/PricingEngine.ts", "additions": 189, "deletions": 0 },
+    { "file": "src/pricing/CurrencyConverter.ts", "additions": 67, "deletions": 0 },
+    { "file": "src/suppliers/FlightSupplierClient.ts", "additions": 98, "deletions": 0 },
+    { "file": "src/suppliers/HotelSupplierClient.ts", "additions": 102, "deletions": 0 },
+    { "file": "src/suppliers/ActivitySupplierClient.ts", "additions": 87, "deletions": 0 },
+    { "file": "src/models/TravelPackage.ts", "additions": 54, "deletions": 0 },
+    { "file": "tests/aggregator/PackageAggregator.test.ts", "additions": 278, "deletions": 0 },
+    { "file": "tests/pricing/PricingEngine.test.ts", "additions": 145, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "High",
+    "summary": "The service makes unbounded external API calls without timeout or circuit breaker protections. Combined with N+1 query patterns in the pricing engine, the service is vulnerable to cascading failures when supplier APIs degrade.",
+    "items": [
+      "No timeout or circuit breaker configured on external supplier HTTP clients",
+      "N+1 query pattern in pricing engine causes linear database call growth per package component",
+      "No rate limiting on the aggregation endpoint to prevent upstream supplier throttling",
+      "Supplier API responses are not validated against expected schemas before processing",
+      "No fallback behavior when a single supplier is unavailable"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Clean adapter pattern for supplier integration allows easy addition of new suppliers without modifying core aggregation logic",
+      "Comprehensive test suite covering aggregation scenarios including partial supplier failures and mixed currency handling",
+      "Well-defined domain model for travel packages with clear separation between supplier-specific and normalized representations",
+      "Currency conversion logic correctly handles rounding and exchange rate staleness with configurable refresh intervals"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "src/pricing/PricingEngine.ts",
+        "message": "The pricing calculation iterates over each package component and executes a separate database query to fetch supplier-specific pricing rules. For a package with 15 components, this results in 15 individual queries per pricing request.",
+        "recommendation": "Batch the pricing rule lookups into a single query using a WHERE IN clause with all component IDs, then map results in memory. Consider adding a short-lived cache for frequently accessed pricing rules."
+      },
+      {
+        "severity": "High",
+        "file": "src/suppliers/FlightSupplierClient.ts",
+        "message": "The HTTP client used for supplier API calls has no configured timeout, connection pool limits, or retry policy. A slow or unresponsive supplier will cause request threads to block indefinitely, eventually exhausting the connection pool.",
+        "recommendation": "Configure explicit connect and read timeouts (e.g., 3s connect, 10s read), implement a circuit breaker pattern using a library like opossum, and add retry logic with exponential backoff for transient failures."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/aggregator/PackageAggregator.ts",
+        "message": "Supplier API calls are executed sequentially, resulting in aggregated latency equal to the sum of all supplier response times. A typical aggregation request touching three suppliers takes 2-4 seconds.",
+        "recommendation": "Execute independent supplier API calls concurrently using Promise.all with individual error handling per supplier, reducing total latency to the duration of the slowest supplier."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/aggregator/SupplierAdapter.ts",
+        "message": "Supplier API responses are directly mapped to domain objects without schema validation. Malformed or unexpected response shapes from suppliers will cause unhandled runtime exceptions.",
+        "recommendation": "Add response schema validation using a library like zod or joi before mapping supplier responses to domain objects. Log and gracefully handle validation failures with supplier-specific error context."
+      },
+      {
+        "severity": "Low",
+        "file": "src/pricing/CurrencyConverter.ts",
+        "message": "Exchange rate cache uses a hardcoded 1-hour refresh interval with no jitter, causing all service instances to refresh simultaneously and spike load on the exchange rate provider.",
+        "recommendation": "Add a random jitter of 5-15 minutes to the refresh interval to distribute load across instances and prevent thundering herd effects on the rate provider."
+      }
+    ]
+  },
+  "recommendations": [
+    "Configure timeouts, connection pool limits, and circuit breakers on all external supplier HTTP clients before production deployment",
+    "Refactor the pricing engine to use batch database queries, eliminating the N+1 pattern",
+    "Parallelize independent supplier API calls using Promise.all to reduce aggregation latency",
+    "Add response schema validation for all supplier API responses with structured error handling",
+    "Implement rate limiting on the aggregation endpoint to prevent upstream supplier throttling and protect service resources",
+    "Add a graceful degradation strategy that returns partial results when individual suppliers are unavailable rather than failing the entire request",
+    "Set up supplier health monitoring with automated circuit breaker alerts to the on-call team when a supplier error rate exceeds thresholds"
+  ]
+}

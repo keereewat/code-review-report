@@ -1,0 +1,83 @@
+{
+  "id": "pr-011",
+  "title": "Booking Cancellation Workflow",
+  "repository": "booking-cancellation-api",
+  "branch": "feature/cancel-workflow",
+  "commitId": "k6l9m45",
+  "pullRequestId": "PR-1890",
+  "reviewDate": "2026-06-13",
+  "reportedBy": "Rachel",
+  "summary": {
+    "overview": "This PR introduces a state machine-driven cancellation workflow for bookings, including partial and full refund processing. The refund calculation logic handles multiple payment methods but lacks comprehensive edge case coverage for split-payment scenarios. Overall architecture follows established patterns, though several areas need hardening before production deployment.",
+    "score": 78
+  },
+  "filesChanged": [
+    { "file": "src/Cancellation/CancellationStateMachine.cs", "additions": 187, "deletions": 23 },
+    { "file": "src/Cancellation/CancellationRequestHandler.cs", "additions": 134, "deletions": 8 },
+    { "file": "src/Cancellation/CancellationValidator.cs", "additions": 92, "deletions": 0 },
+    { "file": "src/Refund/RefundCalculationService.cs", "additions": 245, "deletions": 67 },
+    { "file": "src/Refund/RefundPolicyEngine.cs", "additions": 156, "deletions": 41 },
+    { "file": "src/Refund/PartialRefundStrategy.cs", "additions": 78, "deletions": 0 },
+    { "file": "src/Domain/Events/CancellationEvents.cs", "additions": 64, "deletions": 12 },
+    { "file": "tests/Cancellation/CancellationStateMachineTests.cs", "additions": 198, "deletions": 0 },
+    { "file": "tests/Refund/RefundCalculationServiceTests.cs", "additions": 143, "deletions": 31 }
+  ],
+  "riskAssessment": {
+    "level": "Medium",
+    "summary": "The cancellation workflow introduces financial transaction logic that directly impacts customer refunds. While the state machine pattern provides good traceability, the refund calculation path has insufficient guard clauses for concurrent modification scenarios.",
+    "items": [
+      "Refund amounts are calculated without pessimistic locking, risking duplicate refund issuance under concurrent requests",
+      "State machine transitions do not validate the booking's payment settlement status before initiating refund",
+      "No circuit breaker pattern around the external payment gateway calls in RefundCalculationService",
+      "Partial refund strategy does not account for bookings with promotional discounts applied post-purchase"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Well-structured state machine pattern with clearly defined transitions and guard conditions for the cancellation lifecycle",
+      "Comprehensive unit test coverage for the primary cancellation flow, including timeout and expiry scenarios",
+      "Domain events are properly raised at each state transition, enabling downstream audit trail and notification services",
+      "RefundPolicyEngine cleanly separates business rules from calculation logic, making policy changes straightforward"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "src/Refund/RefundCalculationService.cs",
+        "message": "The refund amount calculation at line 89 performs floating-point arithmetic on currency values without using decimal precision, which can produce rounding errors on split-payment refunds.",
+        "recommendation": "Replace all double-based currency calculations with decimal types and use MidpointRounding.ToEven (banker's rounding) to ensure consistent refund amounts across all payment splits."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Cancellation/CancellationStateMachine.cs",
+        "message": "The state machine allows a transition from 'PendingRefund' to 'Cancelled' without verifying that the refund has been confirmed by the payment provider, potentially marking bookings as cancelled before the refund is settled.",
+        "recommendation": "Add a guard condition on the PendingRefund-to-Cancelled transition that checks the RefundConfirmation event has been received and validated against the expected refund amount."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Cancellation/CancellationRequestHandler.cs",
+        "message": "The handler does not implement idempotency checks, meaning duplicate cancellation requests for the same booking could trigger multiple refund attempts.",
+        "recommendation": "Introduce an idempotency key derived from the booking ID and cancellation request timestamp, and check for existing in-flight cancellations before processing a new request."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Refund/PartialRefundStrategy.cs",
+        "message": "Magic numbers are used for the cancellation fee percentage thresholds at lines 34 and 47 without named constants or configuration backing.",
+        "recommendation": "Extract fee percentages into a configuration class or appsettings section so that business rules can be adjusted without code changes."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Domain/Events/CancellationEvents.cs",
+        "message": "The CancellationInitiated event does not include the original booking amount or payment method, requiring downstream consumers to perform additional lookups.",
+        "recommendation": "Enrich the CancellationInitiated event payload with the booking total and payment method identifiers to reduce coupling between the cancellation and booking bounded contexts."
+      }
+    ]
+  },
+  "recommendations": [
+    "Implement distributed locking or optimistic concurrency control around the refund issuance path to prevent duplicate refund disbursements",
+    "Add integration tests that simulate payment gateway failures mid-refund to verify the state machine recovers correctly",
+    "Introduce a compensation mechanism for partially completed refunds where one payment method succeeds but another fails",
+    "Add structured logging with correlation IDs across the entire cancellation-to-refund pipeline for production observability",
+    "Consider implementing a cooling-off period before finalizing cancellations to handle accidental cancellation requests",
+    "Document the state machine transitions in an ADR with a visual diagram for the team's reference"
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "id": "pr-015",
+  "title": "Real-time Pricing WebSocket API",
+  "repository": "pricing-service",
+  "branch": "feature/ws-pricing-feed",
+  "commitId": "o0p3q89",
+  "pullRequestId": "PR-3200",
+  "reviewDate": "2026-05-25",
+  "reportedBy": "Amanda",
+  "summary": {
+    "overview": "This PR introduces a WebSocket-based real-time pricing feed that streams live price updates to connected clients with subscription-based topic filtering. The implementation handles connection lifecycle management and price broadcasting but has critical deficiencies in backpressure handling and connection pool resource management. In its current state, the service is vulnerable to memory exhaustion under moderate client load and requires significant hardening before production use.",
+    "score": 66
+  },
+  "filesChanged": [
+    { "file": "src/WebSocket/PricingWebSocketHandler.cs", "additions": 267, "deletions": 0 },
+    { "file": "src/WebSocket/ConnectionManager.cs", "additions": 189, "deletions": 0 },
+    { "file": "src/WebSocket/ConnectionPool.cs", "additions": 145, "deletions": 0 },
+    { "file": "src/WebSocket/SubscriptionRegistry.cs", "additions": 112, "deletions": 0 },
+    { "file": "src/WebSocket/MessageSerializer.cs", "additions": 78, "deletions": 0 },
+    { "file": "src/Pricing/PriceFeedAggregator.cs", "additions": 198, "deletions": 0 },
+    { "file": "src/Pricing/PriceUpdateBroadcaster.cs", "additions": 156, "deletions": 0 },
+    { "file": "src/Pricing/PriceThrottleFilter.cs", "additions": 87, "deletions": 0 },
+    { "file": "src/Middleware/WebSocketAuthMiddleware.cs", "additions": 94, "deletions": 0 },
+    { "file": "src/Configuration/WebSocketOptions.cs", "additions": 38, "deletions": 0 },
+    { "file": "tests/WebSocket/PricingWebSocketHandlerTests.cs", "additions": 213, "deletions": 0 },
+    { "file": "tests/WebSocket/ConnectionManagerTests.cs", "additions": 156, "deletions": 0 },
+    { "file": "tests/WebSocket/ConnectionPoolTests.cs", "additions": 98, "deletions": 0 },
+    { "file": "tests/Pricing/PriceFeedAggregatorTests.cs", "additions": 134, "deletions": 0 },
+    { "file": "tests/Pricing/PriceUpdateBroadcasterTests.cs", "additions": 112, "deletions": 0 },
+    { "file": "tests/Pricing/PriceThrottleFilterTests.cs", "additions": 67, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Critical",
+    "summary": "The WebSocket pricing feed maintains long-lived connections with unbounded message queues and no backpressure mechanism. Under production load with slow consumers, the service will accumulate unsent messages in memory until the process crashes. The connection pool also leaks resources on abnormal disconnections, compounding the memory pressure.",
+    "items": [
+      "No backpressure handling: slow consumers cause unbounded message queue growth in the broadcaster, leading to memory exhaustion",
+      "Connection pool does not dispose WebSocket instances on abnormal closure, leaking managed and unmanaged resources",
+      "Price updates are broadcast to all subscribers on the same thread, meaning one slow consumer blocks updates to all others",
+      "No maximum connection limit is enforced, allowing a single client to open unlimited connections and exhaust server resources",
+      "WebSocket authentication token is validated only at connection establishment and never refreshed, allowing expired sessions to maintain indefinite access",
+      "No graceful shutdown mechanism: active connections are abruptly terminated on service restart without draining pending messages"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Subscription registry provides a clean topic-based filtering model that efficiently routes price updates to interested clients only",
+      "Price throttle filter intelligently debounces rapid price fluctuations to avoid overwhelming clients with sub-meaningful updates"
+    ],
+    "issues": [
+      {
+        "severity": "Critical",
+        "file": "src/Pricing/PriceUpdateBroadcaster.cs",
+        "message": "The broadcaster enqueues messages to each subscriber's outbound channel without checking the channel's current depth or the consumer's processing rate. When a consumer falls behind, messages accumulate without bound in the Channel<T> buffer, and with hundreds of concurrent subscribers this will exhaust available memory within minutes under peak pricing activity.",
+        "recommendation": "Implement a bounded Channel<T> with BoundedChannelFullMode.DropOldest for each subscriber's outbound queue. Add a configurable maximum queue depth (e.g., 1000 messages) and emit a metric when messages are dropped so operations can identify slow consumers. Consider disconnecting clients that fall too far behind with a warning message."
+      },
+      {
+        "severity": "Critical",
+        "file": "src/WebSocket/ConnectionPool.cs",
+        "message": "The connection pool's RemoveConnection method only removes the connection from the tracking dictionary but does not call Dispose or CloseAsync on the underlying WebSocket instance. On abnormal disconnections, the socket remains open in a half-closed state, leaking file descriptors and memory. Load testing showed 340 leaked connections after 2 hours of simulated churn.",
+        "recommendation": "Implement IDisposable on the connection wrapper and ensure RemoveConnection always calls CloseAsync with a timeout followed by Dispose. Add a background health-check sweep that identifies and cleans up stale connections every 30 seconds. Register the pool with the host lifetime for graceful shutdown."
+      },
+      {
+        "severity": "High",
+        "file": "src/Pricing/PriceUpdateBroadcaster.cs",
+        "message": "The broadcast loop iterates through all subscribers sequentially and awaits each SendAsync call, meaning a single slow consumer with high network latency blocks price delivery to all other subscribers on that topic.",
+        "recommendation": "Broadcast to subscribers in parallel using Task.WhenAll or dedicate a per-subscriber background task that reads from the subscriber's bounded channel independently. This ensures one slow consumer does not impact delivery latency for others."
+      },
+      {
+        "severity": "High",
+        "file": "src/WebSocket/ConnectionManager.cs",
+        "message": "No maximum connection limit is enforced at the connection manager level. A malicious or misconfigured client can open thousands of WebSocket connections, each consuming memory and a file descriptor, until the server becomes unresponsive.",
+        "recommendation": "Enforce a configurable maximum total connection count and a per-client IP connection limit. Return HTTP 503 with a Retry-After header when limits are reached. Add connection count metrics for capacity planning and alerting."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Middleware/WebSocketAuthMiddleware.cs",
+        "message": "Authentication is performed only during the WebSocket handshake. Once connected, a client retains access indefinitely even if their session token expires or their permissions are revoked.",
+        "recommendation": "Implement periodic token revalidation by sending a server-initiated ping with an auth challenge at configurable intervals (e.g., every 5 minutes). Disconnect clients that fail revalidation with a 4401 close code and a descriptive reason."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/WebSocket/PricingWebSocketHandler.cs",
+        "message": "The message receive loop does not enforce a maximum message size, allowing a client to send an arbitrarily large subscription request payload that consumes excessive memory during deserialization.",
+        "recommendation": "Configure a maximum receive buffer size (e.g., 4KB) on the WebSocket options and reject messages that exceed it with a 1009 (Message Too Big) close code."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Pricing/PriceFeedAggregator.cs",
+        "message": "The aggregator subscribes to upstream price sources but does not implement reconnection logic. If an upstream feed disconnects, that instrument's prices silently stop updating without any alert or fallback.",
+        "recommendation": "Implement exponential backoff reconnection for upstream feed disconnections with a configurable maximum retry count. Emit a health check degradation event when a feed has been disconnected beyond the threshold so monitoring can alert the on-call team."
+      },
+      {
+        "severity": "Low",
+        "file": "src/WebSocket/MessageSerializer.cs",
+        "message": "The JSON serializer creates a new JsonSerializerOptions instance for every message serialization call, which bypasses the internal metadata cache and degrades throughput under high message volumes.",
+        "recommendation": "Create a single static JsonSerializerOptions instance with the required converters and reuse it across all serialization calls. Consider using the source-generated System.Text.Json serializer context for optimal throughput."
+      }
+    ]
+  },
+  "recommendations": [
+    "Implement bounded channels with drop-oldest semantics for all subscriber outbound queues before any production deployment",
+    "Add a connection lifecycle manager that enforces maximum connection limits globally and per-client with configurable thresholds",
+    "Implement proper IDisposable patterns across all connection-related classes and add a background stale connection reaper",
+    "Switch the broadcast loop from sequential to per-subscriber background tasks to eliminate head-of-line blocking",
+    "Add comprehensive load testing with simulated slow consumers to validate backpressure behavior under realistic conditions",
+    "Implement graceful shutdown that drains pending messages and sends close frames to all connected clients before the process exits",
+    "Add periodic authentication revalidation for long-lived WebSocket connections to enforce session expiry",
+    "Introduce structured health check endpoints that report connection count, queue depths, and upstream feed status",
+    "Create runbooks for common operational scenarios including connection storms, memory pressure, and upstream feed outages"
+  ]
+}

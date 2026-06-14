@@ -1,0 +1,108 @@
+{
+  "id": "pr-009",
+  "title": "CI/CD Pipeline Refactoring",
+  "repository": "platform-devops",
+  "branch": "refactor/pipeline-modernization",
+  "commitId": "i4j7k23",
+  "pullRequestId": "PR-3050",
+  "reviewDate": "2026-06-01",
+  "reportedBy": "Tom",
+  "summary": {
+    "overview": "This PR refactors the CI/CD pipeline from legacy Jenkins declarative pipelines to GitHub Actions with Terraform-managed infrastructure provisioning. The modernization effort touches 18 files across workflow definitions, container images, deployment scripts, and infrastructure-as-code. Critical security concerns around secrets management and the absence of a rollback strategy must be resolved before this can be merged.",
+    "score": 67
+  },
+  "filesChanged": [
+    { "file": ".github/workflows/ci.yml", "additions": 245, "deletions": 0 },
+    { "file": ".github/workflows/cd-staging.yml", "additions": 189, "deletions": 0 },
+    { "file": ".github/workflows/cd-production.yml", "additions": 210, "deletions": 0 },
+    { "file": ".github/workflows/security-scan.yml", "additions": 87, "deletions": 0 },
+    { "file": "Dockerfile", "additions": 45, "deletions": 32 },
+    { "file": "Dockerfile.test", "additions": 28, "deletions": 0 },
+    { "file": "scripts/deploy.sh", "additions": 134, "deletions": 0 },
+    { "file": "scripts/rollback.sh", "additions": 12, "deletions": 0 },
+    { "file": "scripts/health-check.sh", "additions": 43, "deletions": 0 },
+    { "file": "terraform/main.tf", "additions": 167, "deletions": 0 },
+    { "file": "terraform/variables.tf", "additions": 78, "deletions": 0 },
+    { "file": "terraform/outputs.tf", "additions": 34, "deletions": 0 },
+    { "file": "terraform/modules/ecs/main.tf", "additions": 145, "deletions": 0 },
+    { "file": "terraform/modules/ecs/variables.tf", "additions": 56, "deletions": 0 },
+    { "file": "terraform/environments/staging.tfvars", "additions": 23, "deletions": 0 },
+    { "file": "terraform/environments/production.tfvars", "additions": 25, "deletions": 0 },
+    { "file": "Jenkinsfile", "additions": 0, "deletions": 312 },
+    { "file": "docker-compose.ci.yml", "additions": 67, "deletions": 41 }
+  ],
+  "riskAssessment": {
+    "level": "Critical",
+    "summary": "The pipeline refactoring introduces critical security vulnerabilities through hardcoded secrets and lacks a tested rollback strategy for failed deployments. A misconfigured production deployment could result in extended downtime with no automated recovery path.",
+    "items": [
+      "Database credentials and API keys are hardcoded in workflow YAML files instead of using GitHub Secrets or a vault",
+      "Rollback script is a stub with no actual implementation",
+      "Production deployment workflow has no manual approval gate",
+      "Terraform state is configured for local storage rather than a remote backend with state locking",
+      "No blue-green or canary deployment strategy to mitigate failed releases",
+      "Container images are built without pinned base image digests, creating supply chain risk"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Well-structured separation of CI and CD workflows with clear stage boundaries",
+      "Inclusion of a dedicated security scanning workflow demonstrates security-conscious design"
+    ],
+    "issues": [
+      {
+        "severity": "Critical",
+        "file": ".github/workflows/cd-production.yml",
+        "message": "Database connection strings and API keys are hardcoded as plaintext environment variables in the workflow file. These secrets are visible to anyone with repository read access and will be logged in workflow run output.",
+        "recommendation": "Move all sensitive values to GitHub Actions encrypted secrets or integrate with AWS Secrets Manager / HashiCorp Vault. Reference them as ${{ secrets.DB_CONNECTION_STRING }} in workflows."
+      },
+      {
+        "severity": "Critical",
+        "file": "scripts/rollback.sh",
+        "message": "The rollback script contains only a placeholder echo statement and does not perform any actual rollback operations. A failed production deployment will require manual intervention with no automated recovery path.",
+        "recommendation": "Implement a complete rollback script that reverts the ECS task definition to the previous stable version, validates service health after rollback, and notifies the on-call team. Test the rollback procedure in staging before merging."
+      },
+      {
+        "severity": "High",
+        "file": ".github/workflows/cd-production.yml",
+        "message": "The production deployment workflow triggers automatically on merge to main without a manual approval gate, allowing untested changes to reach production without human verification.",
+        "recommendation": "Add a GitHub Actions environment with required reviewers for production deployments using the 'environment' key with protection rules configured in repository settings."
+      },
+      {
+        "severity": "High",
+        "file": "terraform/main.tf",
+        "message": "Terraform state is configured with a local backend, which prevents state locking and makes concurrent operations unsafe. State file loss would require manual infrastructure import.",
+        "recommendation": "Configure an S3 backend with DynamoDB state locking for the Terraform state. Ensure the state bucket has versioning enabled and access restricted to the CI/CD service role."
+      },
+      {
+        "severity": "Medium",
+        "file": "Dockerfile",
+        "message": "The base image uses a mutable tag (node:20-alpine) without a pinned digest, making builds non-reproducible and vulnerable to supply chain attacks if the tag is overwritten.",
+        "recommendation": "Pin the base image using a digest reference (e.g., node:20-alpine@sha256:abc123...) and set up Renovate or Dependabot to manage base image updates with automated security scanning."
+      },
+      {
+        "severity": "Medium",
+        "file": ".github/workflows/ci.yml",
+        "message": "Third-party GitHub Actions are referenced with mutable version tags (e.g., actions/checkout@v4) rather than pinned commit SHAs, creating a supply chain risk if a tag is force-pushed.",
+        "recommendation": "Pin all third-party actions to full commit SHAs and use Dependabot to manage updates. Example: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675."
+      },
+      {
+        "severity": "Low",
+        "file": "scripts/deploy.sh",
+        "message": "The deployment script does not validate that required environment variables are set before executing, leading to cryptic errors when configuration is incomplete.",
+        "recommendation": "Add a preflight check at the top of the script that validates all required environment variables are present and exits with a descriptive error message if any are missing."
+      }
+    ]
+  },
+  "recommendations": [
+    "Remove all hardcoded secrets from workflow files immediately and rotate any credentials that have been committed to version control",
+    "Implement a fully functional rollback script and validate it against the staging environment before merging",
+    "Add a manual approval gate for production deployments using GitHub Actions environment protection rules",
+    "Migrate Terraform state to an S3 backend with DynamoDB locking and enable bucket versioning",
+    "Pin all base images and third-party actions to immutable references (digests and commit SHAs)",
+    "Implement a blue-green or canary deployment strategy to reduce blast radius of failed releases",
+    "Add post-deployment health checks that automatically trigger rollback on failure",
+    "Configure OIDC-based authentication for AWS instead of long-lived access keys in GitHub Secrets",
+    "Set up Terraform plan output as a PR comment for infrastructure change visibility before apply",
+    "Add pipeline execution metrics and alerting for failed deployments and slow build times"
+  ]
+}

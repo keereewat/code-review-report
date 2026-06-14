@@ -1,0 +1,51 @@
+{
+  "id": "pr-012",
+  "title": "Rate Limiting Middleware",
+  "repository": "api-gateway",
+  "branch": "feature/rate-limiter",
+  "commitId": "l7m0n56",
+  "pullRequestId": "PR-2450",
+  "reviewDate": "2026-05-30",
+  "reportedBy": "Kevin",
+  "summary": {
+    "overview": "This PR adds a token bucket rate limiting middleware to the API gateway with per-client and per-endpoint granularity. The implementation uses a distributed Redis-backed store for rate limit counters, ensuring consistent enforcement across multiple gateway instances. Code quality is excellent with thorough configuration options and clean separation of concerns.",
+    "score": 91
+  },
+  "filesChanged": [
+    { "file": "src/Middleware/RateLimitingMiddleware.cs", "additions": 142, "deletions": 0 },
+    { "file": "src/Middleware/TokenBucketStrategy.cs", "additions": 98, "deletions": 0 },
+    { "file": "src/Configuration/RateLimitOptions.cs", "additions": 47, "deletions": 0 },
+    { "file": "src/Store/RedisRateLimitStore.cs", "additions": 113, "deletions": 0 },
+    { "file": "tests/Middleware/RateLimitingMiddlewareTests.cs", "additions": 234, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Low",
+    "summary": "The rate limiting middleware operates as a non-destructive filter in the request pipeline. Redis failure is handled gracefully with a fallback to allow-all behavior, and the middleware can be bypassed via configuration without code changes.",
+    "items": [
+      "Redis connectivity issues will degrade to open-allow mode, which is an intentional design choice but should be monitored",
+      "Rate limit headers are added to all responses, which could expose internal capacity information to external consumers"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Token bucket algorithm is implemented correctly with atomic Redis operations using Lua scripts to prevent race conditions",
+      "Comprehensive configuration model supports per-endpoint, per-client, and global rate limits with sensible defaults",
+      "Middleware gracefully degrades to pass-through on Redis failures, preventing rate limiter outages from cascading to API availability",
+      "Test suite covers edge cases including concurrent requests, Redis timeouts, and configuration hot-reload scenarios",
+      "Clean use of the Options pattern for configuration binding with validation attributes on all required fields"
+    ],
+    "issues": [
+      {
+        "severity": "Low",
+        "file": "src/Middleware/RateLimitingMiddleware.cs",
+        "message": "The Retry-After header value is calculated using DateTime.UtcNow which may drift slightly from the Redis server's clock, potentially providing inaccurate retry guidance to clients.",
+        "recommendation": "Use the TTL returned from the Redis PTTL command for the rate limit key to calculate the Retry-After value, ensuring consistency with the actual token bucket refill timing."
+      }
+    ]
+  },
+  "recommendations": [
+    "Add metrics emission for rate limit hits and misses to enable dashboarding and alerting on throttling patterns",
+    "Consider implementing a sliding window log algorithm as an alternative strategy for endpoints requiring stricter burst control",
+    "Document the rate limit response headers and error codes in the API gateway's public-facing developer documentation"
+  ]
+}

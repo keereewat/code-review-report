@@ -1,0 +1,44 @@
+{
+  "id": "pr-020",
+  "title": "API Documentation Auto-Generator",
+  "repository": "developer-portal",
+  "branch": "feature/auto-docs",
+  "commitId": "t5u8v34",
+  "pullRequestId": "PR-620",
+  "reviewDate": "2026-06-12",
+  "reportedBy": "Lisa",
+  "summary": {
+    "overview": "This PR adds an automated API documentation generator that introspects route definitions and TypeScript types to produce OpenAPI 3.1 specifications. The implementation is clean, well-tested, and seamlessly integrates with the existing developer portal build pipeline. This is an excellent contribution that will significantly reduce documentation drift across all API services.",
+    "score": 96
+  },
+  "filesChanged": [
+    { "file": "src/generators/openapi-generator.ts", "additions": 312, "deletions": 0 },
+    { "file": "src/parsers/route-introspector.ts", "additions": 187, "deletions": 0 },
+    { "file": "tests/generators/openapi-generator.spec.ts", "additions": 428, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Low",
+    "summary": "The change is purely additive and does not modify any existing documentation or build processes. The generator runs as an optional build step and failures do not block the main pipeline.",
+    "items": [
+      "New dev dependency on typescript-json-schema adds ~1MB to node_modules but is not included in production bundles"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "The route introspector uses the TypeScript compiler API directly rather than regex parsing, ensuring accurate type extraction even for complex generic types",
+      "Generated OpenAPI specs are validated against the official JSON Schema as part of the test suite, guaranteeing spec compliance",
+      "Test coverage is at 97% with edge cases covering union types, intersections, optional fields, and recursive type references",
+      "The generator is designed as a pure function with no side effects, making it easy to integrate into any build pipeline or run standalone",
+      "Output format supports both JSON and YAML with configurable indentation to match existing project conventions"
+    ],
+    "issues": [],
+    "recommendations": [
+      "Consider adding a watch mode that regenerates documentation on file changes during local development to shorten the feedback loop",
+      "Add a CI step that diffs the generated spec against the committed version and fails if they diverge, preventing documentation drift"
+    ]
+  },
+  "recommendations": [
+    "Consider adding a watch mode that regenerates documentation on file changes during local development to shorten the feedback loop",
+    "Add a CI step that diffs the generated spec against the committed version and fails if they diverge, preventing documentation drift"
+  ]
+}

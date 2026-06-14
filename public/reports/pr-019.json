@@ -1,0 +1,111 @@
+{
+  "id": "pr-019",
+  "title": "Multi-Tenant Data Isolation",
+  "repository": "platform-core",
+  "branch": "feature/tenant-isolation",
+  "commitId": "s4t7u23",
+  "pullRequestId": "PR-3500",
+  "reviewDate": "2026-05-29",
+  "reportedBy": "Tom",
+  "summary": {
+    "overview": "This PR implements multi-tenant data isolation across the platform core services, introducing tenant-scoped database queries and cache partitioning. While the overall approach is architecturally sound, critical gaps in the shared cache layer and missing row-level security policies create real risk of cross-tenant data leakage. This PR should not be merged until the critical issues are resolved and a thorough security review is completed.",
+    "score": 62
+  },
+  "filesChanged": [
+    { "file": "src/middleware/tenant-context.middleware.ts", "additions": 134, "deletions": 0 },
+    { "file": "src/middleware/tenant-context.spec.ts", "additions": 189, "deletions": 0 },
+    { "file": "src/database/tenant-scoped.repository.ts", "additions": 210, "deletions": 0 },
+    { "file": "src/database/connection-manager.ts", "additions": 78, "deletions": 23 },
+    { "file": "src/cache/tenant-cache.service.ts", "additions": 156, "deletions": 0 },
+    { "file": "src/cache/cache.service.ts", "additions": 12, "deletions": 45 },
+    { "file": "src/models/tenant.entity.ts", "additions": 54, "deletions": 0 },
+    { "file": "src/models/base.entity.ts", "additions": 8, "deletions": 2 },
+    { "file": "src/services/user.service.ts", "additions": 34, "deletions": 18 },
+    { "file": "src/services/organization.service.ts", "additions": 67, "deletions": 31 },
+    { "file": "src/services/project.service.ts", "additions": 45, "deletions": 22 },
+    { "file": "src/services/billing.service.ts", "additions": 29, "deletions": 14 },
+    { "file": "src/guards/tenant-access.guard.ts", "additions": 98, "deletions": 0 },
+    { "file": "migrations/20260528_add_tenant_id_columns.sql", "additions": 124, "deletions": 0 },
+    { "file": "migrations/20260528_add_rls_policies.sql", "additions": 67, "deletions": 0 },
+    { "file": "tests/database/tenant-scoped.repository.spec.ts", "additions": 278, "deletions": 0 },
+    { "file": "tests/cache/tenant-cache.service.spec.ts", "additions": 145, "deletions": 0 },
+    { "file": "tests/guards/tenant-access.guard.spec.ts", "additions": 112, "deletions": 0 },
+    { "file": "tests/integration/tenant-isolation.integration.spec.ts", "additions": 334, "deletions": 0 },
+    { "file": "docs/multi-tenancy-architecture.md", "additions": 187, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Critical",
+    "summary": "Two critical vulnerabilities exist that could allow one tenant to access another tenant's data: the shared Redis cache does not enforce tenant key prefixing on all code paths, and row-level security policies are defined but not enabled on several tables containing sensitive data.",
+    "items": [
+      "Shared Redis cache allows cross-tenant data reads through unprefixed legacy cache keys",
+      "Row-level security policies are defined in migration but ALTER TABLE ENABLE ROW LEVEL SECURITY is missing for 4 tables",
+      "Tenant context middleware does not validate tenant ID against the authenticated user's allowed tenants",
+      "No automated cross-tenant data access tests in the CI pipeline",
+      "Background job processors bypass tenant context middleware entirely",
+      "Audit logging does not capture tenant context switches for compliance",
+      "Rollback strategy for the tenant_id column migration is not documented"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "The tenant-scoped repository pattern provides a clean abstraction that automatically applies tenant filtering to all queries, reducing the chance of developer error",
+      "Integration test suite includes cross-tenant isolation scenarios that verify data boundaries at the database level"
+    ],
+    "issues": [
+      {
+        "severity": "Critical",
+        "file": "src/cache/tenant-cache.service.ts",
+        "message": "The tenant cache service correctly prefixes new cache keys with the tenant ID, but the fallback path in getCachedOrFetch() calls the legacy cache.service.ts get() method which uses unprefixed keys. This means a cache miss on a tenant-prefixed key can return data cached by a different tenant under the old key format.",
+        "recommendation": "Remove the legacy cache fallback entirely or migrate all existing cache entries to tenant-prefixed keys before deployment. Add a cache key format validation check that rejects any key without a tenant prefix."
+      },
+      {
+        "severity": "Critical",
+        "file": "migrations/20260528_add_rls_policies.sql",
+        "message": "Row-level security policies are defined for the users, organizations, projects, and billing_accounts tables, but the ALTER TABLE ... ENABLE ROW LEVEL SECURITY statement is only present for users and organizations. The projects and billing_accounts tables have policies defined but not activated.",
+        "recommendation": "Add ALTER TABLE projects ENABLE ROW LEVEL SECURITY and ALTER TABLE billing_accounts ENABLE ROW LEVEL SECURITY statements. Add a CI check that verifies RLS is enabled on all tenant-scoped tables."
+      },
+      {
+        "severity": "High",
+        "file": "src/middleware/tenant-context.middleware.ts",
+        "message": "The middleware extracts the tenant ID from the X-Tenant-ID header but does not verify that the authenticated user has access to the requested tenant, allowing any authenticated user to impersonate any tenant by setting the header.",
+        "recommendation": "Add a validation step that checks the requested tenant ID against the user's tenant memberships from the authentication token claims before setting the tenant context."
+      },
+      {
+        "severity": "High",
+        "file": "src/services/billing.service.ts",
+        "message": "The billing service's getInvoiceHistory method directly queries the database with a raw SQL query that does not include a tenant_id WHERE clause, bypassing the tenant-scoped repository entirely.",
+        "recommendation": "Refactor getInvoiceHistory to use the tenant-scoped repository instead of raw SQL. Add a linting rule that flags raw SQL queries in tenant-aware services."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/guards/tenant-access.guard.ts",
+        "message": "The tenant access guard caches authorization decisions for 5 minutes, which means a user removed from a tenant can continue accessing resources until the cache expires.",
+        "recommendation": "Reduce the cache TTL to 60 seconds and implement a cache invalidation event when tenant membership changes occur."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/database/connection-manager.ts",
+        "message": "The connection manager creates a new database connection per tenant context switch instead of pooling connections by tenant, which will cause connection exhaustion under high concurrency.",
+        "recommendation": "Implement a tenant-aware connection pool that reuses connections per tenant and sets the session-level tenant variable on checkout rather than creating new connections."
+      },
+      {
+        "severity": "Low",
+        "file": "src/models/base.entity.ts",
+        "message": "The tenantId field is added as optional (nullable) on the base entity, which means existing records without a tenant ID will pass TypeScript type checks but fail at runtime when RLS is enforced.",
+        "recommendation": "Make tenantId required on the base entity and run a data migration to assign existing records to their correct tenant before enabling RLS."
+      }
+    ]
+  },
+  "recommendations": [
+    "Block merge until both critical cache and RLS issues are resolved and verified by the security team",
+    "Add ALTER TABLE ENABLE ROW LEVEL SECURITY for all tenant-scoped tables and verify with a CI check",
+    "Remove the legacy cache fallback path and migrate all cache keys to tenant-prefixed format",
+    "Add tenant ID validation in the context middleware against the authenticated user's tenant memberships",
+    "Refactor all raw SQL queries in tenant-aware services to use the tenant-scoped repository",
+    "Implement a background job tenant context provider that sets tenant scope before job execution",
+    "Add cross-tenant data access tests to the CI pipeline that run on every pull request",
+    "Add audit logging for tenant context switches to meet SOC 2 compliance requirements",
+    "Document the rollback procedure for the tenant_id column migration in the runbook",
+    "Schedule a dedicated security review with the infrastructure team before deploying to production"
+  ]
+}

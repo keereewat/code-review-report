@@ -1,0 +1,202 @@
+[
+  {
+    "id": "pr-001",
+    "title": "Payment Gateway Refactor",
+    "repository": "travel-payment-api",
+    "branch": "feature/payment-gateway-v2",
+    "reviewDate": "2026-06-14",
+    "riskLevel": "Medium",
+    "score": 85,
+    "reportedBy": "Alex"
+  },
+  {
+    "id": "pr-002",
+    "title": "Flight Booking Service",
+    "repository": "flight-booking-api",
+    "branch": "feature/booking-engine",
+    "reviewDate": "2026-06-10",
+    "riskLevel": "High",
+    "score": 72,
+    "reportedBy": "Sarah"
+  },
+  {
+    "id": "pr-003",
+    "title": "Authentication Module Upgrade",
+    "repository": "identity-service",
+    "branch": "feature/auth-v3-migration",
+    "reviewDate": "2026-06-08",
+    "riskLevel": "Critical",
+    "score": 65,
+    "reportedBy": "Mike"
+  },
+  {
+    "id": "pr-004",
+    "title": "Hotel Search Performance Improvement",
+    "repository": "hotel-search-api",
+    "branch": "perf/search-optimization",
+    "reviewDate": "2026-06-12",
+    "riskLevel": "Low",
+    "score": 95,
+    "reportedBy": "Lisa"
+  },
+  {
+    "id": "pr-005",
+    "title": "Azure Blob Storage Integration",
+    "repository": "document-service",
+    "branch": "feature/azure-blob-storage",
+    "reviewDate": "2026-06-05",
+    "riskLevel": "Medium",
+    "score": 82,
+    "reportedBy": "David"
+  },
+  {
+    "id": "pr-006",
+    "title": "Notification Service Enhancement",
+    "repository": "notification-service",
+    "branch": "feature/multi-channel-notify",
+    "reviewDate": "2026-05-28",
+    "riskLevel": "Low",
+    "score": 98,
+    "reportedBy": "Emma"
+  },
+  {
+    "id": "pr-007",
+    "title": "Customer Profile API Migration",
+    "repository": "customer-profile-api",
+    "branch": "feature/profile-v2-migration",
+    "reviewDate": "2026-06-02",
+    "riskLevel": "High",
+    "score": 69,
+    "reportedBy": "James"
+  },
+  {
+    "id": "pr-008",
+    "title": "AI Review Engine Optimization",
+    "repository": "ai-review-engine",
+    "branch": "perf/model-inference-cache",
+    "reviewDate": "2026-06-11",
+    "riskLevel": "Medium",
+    "score": 88,
+    "reportedBy": "Olivia"
+  },
+  {
+    "id": "pr-009",
+    "title": "CI/CD Pipeline Refactoring",
+    "repository": "platform-devops",
+    "branch": "refactor/pipeline-modernization",
+    "reviewDate": "2026-06-01",
+    "riskLevel": "Critical",
+    "score": 67,
+    "reportedBy": "Tom"
+  },
+  {
+    "id": "pr-010",
+    "title": "Travel Package Aggregation Service",
+    "repository": "travel-package-api",
+    "branch": "feature/package-aggregator",
+    "reviewDate": "2026-06-07",
+    "riskLevel": "High",
+    "score": 75,
+    "reportedBy": "Nina"
+  },
+  {
+    "id": "pr-011",
+    "title": "Booking Cancellation Workflow",
+    "repository": "booking-cancellation-api",
+    "branch": "feature/cancel-workflow",
+    "reviewDate": "2026-06-13",
+    "riskLevel": "Medium",
+    "score": 78,
+    "reportedBy": "Rachel"
+  },
+  {
+    "id": "pr-012",
+    "title": "Rate Limiting Middleware",
+    "repository": "api-gateway",
+    "branch": "feature/rate-limiter",
+    "reviewDate": "2026-05-30",
+    "riskLevel": "Low",
+    "score": 91,
+    "reportedBy": "Kevin"
+  },
+  {
+    "id": "pr-013",
+    "title": "Loyalty Points Calculation Engine",
+    "repository": "loyalty-service",
+    "branch": "feature/points-engine-v2",
+    "reviewDate": "2026-06-09",
+    "riskLevel": "High",
+    "score": 73,
+    "reportedBy": "Sophia"
+  },
+  {
+    "id": "pr-014",
+    "title": "Email Template Service Revamp",
+    "repository": "email-service",
+    "branch": "refactor/template-engine",
+    "reviewDate": "2026-06-03",
+    "riskLevel": "Low",
+    "score": 89,
+    "reportedBy": "Daniel"
+  },
+  {
+    "id": "pr-015",
+    "title": "Real-time Pricing WebSocket API",
+    "repository": "pricing-service",
+    "branch": "feature/ws-pricing-feed",
+    "reviewDate": "2026-05-25",
+    "riskLevel": "Critical",
+    "score": 66,
+    "reportedBy": "Amanda"
+  },
+  {
+    "id": "pr-016",
+    "title": "Inventory Sync Background Worker",
+    "repository": "inventory-service",
+    "branch": "feature/sync-worker",
+    "reviewDate": "2026-06-06",
+    "riskLevel": "Medium",
+    "score": 81,
+    "reportedBy": "Chris"
+  },
+  {
+    "id": "pr-017",
+    "title": "GraphQL Schema Migration",
+    "repository": "graphql-gateway",
+    "branch": "feature/schema-v3",
+    "reviewDate": "2026-05-22",
+    "riskLevel": "High",
+    "score": 70,
+    "reportedBy": "Maria"
+  },
+  {
+    "id": "pr-018",
+    "title": "PDF Invoice Generator",
+    "repository": "billing-service",
+    "branch": "feature/pdf-invoices",
+    "reviewDate": "2026-06-04",
+    "riskLevel": "Low",
+    "score": 93,
+    "reportedBy": "Alex"
+  },
+  {
+    "id": "pr-019",
+    "title": "Multi-Tenant Data Isolation",
+    "repository": "platform-core",
+    "branch": "feature/tenant-isolation",
+    "reviewDate": "2026-05-29",
+    "riskLevel": "Critical",
+    "score": 62,
+    "reportedBy": "Tom"
+  },
+  {
+    "id": "pr-020",
+    "title": "API Documentation Auto-Generator",
+    "repository": "developer-portal",
+    "branch": "feature/auto-docs",
+    "reviewDate": "2026-06-12",
+    "riskLevel": "Low",
+    "score": 96,
+    "reportedBy": "Lisa"
+  }
+]

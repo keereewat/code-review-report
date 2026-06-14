@@ -1,0 +1,92 @@
+{
+  "id": "pr-013",
+  "title": "Loyalty Points Calculation Engine",
+  "repository": "loyalty-service",
+  "branch": "feature/points-engine-v2",
+  "commitId": "m8n1o67",
+  "pullRequestId": "PR-987",
+  "reviewDate": "2026-06-09",
+  "reportedBy": "Sophia",
+  "summary": {
+    "overview": "This PR replaces the legacy points calculation engine with a new rule-based system that supports tiered earning rates, promotional multipliers, and partner earn integrations. While the domain modeling is sound, there are critical concerns around currency-to-points conversion precision and insufficient handling of concurrent point balance modifications. The calculation pipeline needs additional safeguards before it can process production transaction volumes.",
+    "score": 73
+  },
+  "filesChanged": [
+    { "file": "src/Points/PointsCalculationEngine.cs", "additions": 312, "deletions": 189 },
+    { "file": "src/Points/TieredEarningRateProvider.cs", "additions": 145, "deletions": 0 },
+    { "file": "src/Points/PromotionalMultiplierService.cs", "additions": 98, "deletions": 0 },
+    { "file": "src/Points/PartnerEarnIntegration.cs", "additions": 167, "deletions": 0 },
+    { "file": "src/Points/PointsBalanceRepository.cs", "additions": 89, "deletions": 54 },
+    { "file": "src/Domain/PointsTransaction.cs", "additions": 76, "deletions": 32 },
+    { "file": "src/Domain/EarningRule.cs", "additions": 58, "deletions": 0 },
+    { "file": "src/Currency/CurrencyConversionService.cs", "additions": 124, "deletions": 67 },
+    { "file": "tests/Points/PointsCalculationEngineTests.cs", "additions": 267, "deletions": 98 },
+    { "file": "tests/Points/TieredEarningRateProviderTests.cs", "additions": 134, "deletions": 0 },
+    { "file": "tests/Currency/CurrencyConversionServiceTests.cs", "additions": 89, "deletions": 41 }
+  ],
+  "riskAssessment": {
+    "level": "High",
+    "summary": "The loyalty points engine directly impacts customer-visible point balances and has financial implications for partner settlement. Rounding errors in currency conversion could accumulate to material discrepancies at scale, and the lack of transactional consistency on balance updates poses a risk of point inflation or loss.",
+    "items": [
+      "Currency-to-points conversion uses floating-point division which produces inconsistent rounding across different transaction amounts",
+      "Points balance updates are not wrapped in a database transaction, allowing partial writes if the process crashes mid-calculation",
+      "No reconciliation mechanism exists to detect drift between earned points and the points ledger over time",
+      "Promotional multiplier stacking rules are not validated, potentially allowing unbounded point earning on edge-case transactions",
+      "Partner earn integration makes synchronous HTTP calls without timeout or retry configuration"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Tiered earning rate provider uses a clean strategy pattern that makes adding new tier configurations straightforward",
+      "Domain model correctly separates earning rules from calculation logic, allowing business rule changes without engine modifications",
+      "Test coverage for the core calculation paths is thorough, including boundary conditions for tier thresholds"
+    ],
+    "issues": [
+      {
+        "severity": "Critical",
+        "file": "src/Currency/CurrencyConversionService.cs",
+        "message": "Currency-to-points conversion at line 67 uses double division followed by Math.Round with MidpointRounding.AwayFromZero, which produces inconsistent results for values like 2.445 across different runtime environments and can accumulate to significant discrepancies at high transaction volumes.",
+        "recommendation": "Replace all currency arithmetic with decimal types and use banker's rounding (MidpointRounding.ToEven). Implement a dedicated Money value object that encapsulates precision rules and prevents accidental floating-point usage throughout the calculation pipeline."
+      },
+      {
+        "severity": "High",
+        "file": "src/Points/PointsBalanceRepository.cs",
+        "message": "The UpdateBalance method performs a read-then-write without any concurrency control, meaning two simultaneous transactions for the same member could both read the same balance and overwrite each other's updates.",
+        "recommendation": "Wrap the balance read and update in a serializable transaction or use optimistic concurrency with a version column on the points balance table. Consider using SELECT FOR UPDATE if the database supports row-level locking."
+      },
+      {
+        "severity": "High",
+        "file": "src/Points/PointsCalculationEngine.cs",
+        "message": "The calculation pipeline processes earning rules sequentially but does not enforce mutual exclusivity between promotional multipliers and partner earn bonuses, potentially awarding double benefits on qualifying transactions.",
+        "recommendation": "Introduce an explicit rule conflict resolution strategy that defines precedence when multiple earning rules match. Add a validation step that detects and logs conflicting rule applications before committing the points award."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Points/PromotionalMultiplierService.cs",
+        "message": "Promotional multiplier expiry is checked against DateTime.Now instead of UTC, which will produce incorrect results for members in time zones ahead of the server's local time near promotion boundaries.",
+        "recommendation": "Standardize all date comparisons to DateTimeOffset.UtcNow and store promotion start/end times in UTC. Apply timezone conversion only at the presentation layer."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Points/PartnerEarnIntegration.cs",
+        "message": "The HTTP client for partner earn calls is instantiated per request without connection pooling, which will exhaust socket connections under load and cause SocketException failures.",
+        "recommendation": "Register the HttpClient via IHttpClientFactory in the DI container with appropriate timeout, retry, and circuit breaker policies using Polly."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Domain/PointsTransaction.cs",
+        "message": "The PointsTransaction entity exposes a public setter on the Amount property, allowing modification after creation which violates the immutability expected of a financial transaction record.",
+        "recommendation": "Make the Amount property init-only and enforce all values through the constructor to prevent accidental mutation of committed transaction records."
+      }
+    ]
+  },
+  "recommendations": [
+    "Implement a daily reconciliation job that compares the sum of transaction records against the current balance for each member to detect drift",
+    "Add property-based tests using a library like FsCheck to verify that points calculations are deterministic regardless of input currency amounts",
+    "Create a Money value object that encapsulates all currency precision rules and replace raw numeric types throughout the codebase",
+    "Implement an audit log for all points balance modifications with before/after snapshots for compliance and dispute resolution",
+    "Add circuit breaker and retry policies to the partner earn integration to handle upstream service degradation gracefully",
+    "Define and document the promotional multiplier stacking rules as a business specification before implementing conflict resolution",
+    "Consider using an event-sourced approach for the points ledger to provide a complete, immutable history of all balance changes"
+  ]
+}

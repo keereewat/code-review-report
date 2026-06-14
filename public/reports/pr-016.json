@@ -1,0 +1,75 @@
+{
+  "id": "pr-016",
+  "title": "Inventory Sync Background Worker",
+  "repository": "inventory-service",
+  "branch": "feature/sync-worker",
+  "commitId": "p1q4r90",
+  "pullRequestId": "PR-776",
+  "reviewDate": "2026-06-06",
+  "reportedBy": "Chris",
+  "summary": {
+    "overview": "This PR introduces a background worker for synchronizing inventory data between the warehouse management system and the product catalog. The implementation uses a polling-based approach with configurable intervals and batch processing. Overall the architecture is sound, but error handling around failed sync batches needs attention before production deployment.",
+    "score": 81
+  },
+  "filesChanged": [
+    { "file": "src/workers/inventory-sync.worker.ts", "additions": 245, "deletions": 0 },
+    { "file": "src/workers/inventory-sync.config.ts", "additions": 38, "deletions": 0 },
+    { "file": "src/services/inventory-reconciliation.service.ts", "additions": 187, "deletions": 12 },
+    { "file": "src/repositories/inventory.repository.ts", "additions": 64, "deletions": 8 },
+    { "file": "src/models/sync-job.entity.ts", "additions": 52, "deletions": 0 },
+    { "file": "src/queues/sync-queue.producer.ts", "additions": 89, "deletions": 0 },
+    { "file": "tests/workers/inventory-sync.worker.spec.ts", "additions": 312, "deletions": 0 },
+    { "file": "migrations/20260605_add_sync_jobs_table.sql", "additions": 34, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Medium",
+    "summary": "The worker processes inventory updates in batches but lacks a dead-letter queue for failed messages, which could result in silent data loss during upstream service outages.",
+    "items": [
+      "No dead-letter queue configured for failed sync messages",
+      "Batch size of 500 records may cause memory pressure under peak load",
+      "Missing circuit breaker pattern for external warehouse API calls",
+      "Database migration adds a new table but lacks rollback script"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Clean separation between queue producer, worker logic, and reconciliation service follows single-responsibility principle",
+      "Comprehensive test coverage at 89% with well-structured integration tests for the sync pipeline",
+      "Configurable polling interval and batch size allow tuning without code changes",
+      "Idempotent sync operations prevent duplicate inventory updates on retry"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "src/workers/inventory-sync.worker.ts",
+        "message": "Failed sync batches are logged but silently discarded without routing to a dead-letter queue, which means inventory discrepancies will go undetected during partial outages.",
+        "recommendation": "Implement a dead-letter queue using the existing RabbitMQ infrastructure and configure alerts when the DLQ depth exceeds a threshold."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/services/inventory-reconciliation.service.ts",
+        "message": "The reconciliation service makes sequential HTTP calls to the warehouse API for each SKU in the batch instead of using the bulk endpoint.",
+        "recommendation": "Refactor to use the /api/v2/warehouse/bulk-lookup endpoint to reduce network round trips and improve throughput by an estimated 10x."
+      },
+      {
+        "severity": "Low",
+        "file": "src/workers/inventory-sync.config.ts",
+        "message": "Default polling interval is set to 5 seconds which may be too aggressive for non-production environments and could trigger rate limiting.",
+        "recommendation": "Set the default polling interval to 30 seconds and allow environment-specific overrides via the existing configuration hierarchy."
+      },
+      {
+        "severity": "Low",
+        "file": "src/queues/sync-queue.producer.ts",
+        "message": "Queue connection string is hardcoded as a fallback when the environment variable is missing, exposing an internal hostname.",
+        "recommendation": "Remove the hardcoded fallback and throw a descriptive startup error if QUEUE_CONNECTION_STRING is not set."
+      }
+    ]
+  },
+  "recommendations": [
+    "Add a dead-letter queue with monitoring and alerting for failed sync messages before merging to production",
+    "Implement a circuit breaker pattern around the warehouse API client to gracefully handle upstream outages",
+    "Add a database migration rollback script to the migrations directory following the existing rollback naming convention",
+    "Consider adding a health check endpoint that reports the last successful sync timestamp for operational monitoring",
+    "Document the sync worker configuration options in the service README for the on-call team"
+  ]
+}

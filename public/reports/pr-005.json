@@ -1,0 +1,75 @@
+{
+  "id": "pr-005",
+  "title": "Azure Blob Storage Integration",
+  "repository": "document-service",
+  "branch": "feature/azure-blob-storage",
+  "commitId": "e6b3c12",
+  "pullRequestId": "PR-1337",
+  "reviewDate": "2026-06-05",
+  "reportedBy": "David",
+  "summary": {
+    "overview": "This PR integrates Azure Blob Storage for document upload, retrieval, and lifecycle management in the document service. The implementation supports multi-tenant container isolation, SAS token generation for secure client-side uploads, and automatic tier management for cost optimization. There are several areas where Azure SDK best practices should be followed more closely, particularly around client lifecycle management and authentication.",
+    "score": 82
+  },
+  "filesChanged": [
+    { "file": "src/Services/BlobStorageService.cs", "additions": 215, "deletions": 0 },
+    { "file": "src/Services/DocumentUploadService.cs", "additions": 134, "deletions": 45 },
+    { "file": "src/Services/SasTokenGenerator.cs", "additions": 78, "deletions": 0 },
+    { "file": "src/Controllers/DocumentController.cs", "additions": 92, "deletions": 38 },
+    { "file": "src/Configuration/AzureStorageConfig.cs", "additions": 44, "deletions": 0 },
+    { "file": "src/Models/DocumentMetadata.cs", "additions": 36, "deletions": 12 },
+    { "file": "tests/BlobStorageServiceTests.cs", "additions": 198, "deletions": 0 },
+    { "file": "tests/DocumentUploadServiceTests.cs", "additions": 156, "deletions": 34 }
+  ],
+  "riskAssessment": {
+    "level": "Medium",
+    "summary": "The document service handles sensitive customer documents including travel itineraries, invoices, and passport scans. The identified issues around connection string handling and blob client instantiation could lead to credential exposure and resource exhaustion under load. The missing managed identity configuration means the service relies on shared access keys, which is not aligned with the organization's zero-trust security posture.",
+    "items": [
+      "BlobServiceClient is instantiated per-request instead of being reused, which will exhaust socket connections under load",
+      "Storage account connection string is embedded in appsettings.json rather than managed through Azure Key Vault",
+      "Authentication uses shared access keys instead of managed identity, creating a credential rotation burden",
+      "SAS tokens are generated with overly broad permissions that include delete access for upload-only scenarios"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Well-designed multi-tenant container isolation with proper naming conventions and access policies per tenant",
+      "Comprehensive document lifecycle management with automatic tier transitions from Hot to Cool to Archive based on access patterns",
+      "Good implementation of chunked upload for large documents with progress tracking and resumable upload support",
+      "Thorough unit tests using Azurite emulator for realistic blob storage interaction testing"
+    ],
+    "issues": [
+      {
+        "severity": "High",
+        "file": "src/Services/BlobStorageService.cs",
+        "message": "A new BlobServiceClient is instantiated on every method call using the connection string constructor. The Azure SDK documentation explicitly recommends treating BlobServiceClient as a singleton because it manages its own connection pool. Creating a new instance per request will exhaust available TCP connections under production load.",
+        "recommendation": "Register BlobServiceClient as a singleton in the DI container using AddAzureClients from Microsoft.Extensions.Azure. This ensures proper connection pooling and lifecycle management. Inject BlobServiceClient through the constructor rather than instantiating it inline."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Configuration/AzureStorageConfig.cs",
+        "message": "The service authenticates to Azure Blob Storage using a connection string with an embedded shared access key. This approach requires manual key rotation, and the key has full account-level access including management operations that this service does not need.",
+        "recommendation": "Switch to Azure Managed Identity authentication using DefaultAzureCredential. This eliminates the need for credential management and rotation. Assign the Storage Blob Data Contributor role to the service's managed identity at the container level for least-privilege access."
+      },
+      {
+        "severity": "Medium",
+        "file": "src/Services/BlobStorageService.cs",
+        "message": "The storage account connection string is read from appsettings.json where it is stored as a plaintext configuration value. This connection string includes the account key and provides full access to all containers and blobs in the storage account.",
+        "recommendation": "If managed identity cannot be adopted immediately, move the connection string to Azure Key Vault and reference it using the Key Vault configuration provider. Ensure the connection string is never committed to source control and add the configuration key to the repository's secret scanning rules."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Services/SasTokenGenerator.cs",
+        "message": "SAS tokens generated for document upload include BlobSasPermissions.Delete in addition to Create and Write. This grants upload clients the ability to delete existing blobs, which exceeds the minimum required permissions for the upload use case.",
+        "recommendation": "Generate SAS tokens with only the minimum required permissions for each operation. For upload scenarios, use BlobSasPermissions.Create | BlobSasPermissions.Write. Create separate SAS token generation methods for upload, download, and delete operations with appropriate permission sets."
+      }
+    ]
+  },
+  "recommendations": [
+    "Register BlobServiceClient as a singleton in the DI container to ensure proper connection pooling and prevent socket exhaustion",
+    "Migrate from shared access key authentication to Azure Managed Identity using DefaultAzureCredential for all environments",
+    "Move any remaining connection strings or secrets to Azure Key Vault with the Key Vault configuration provider",
+    "Implement least-privilege SAS token generation with operation-specific permission sets",
+    "Add health checks that verify blob storage connectivity and report container-level availability to the monitoring dashboard"
+  ]
+}

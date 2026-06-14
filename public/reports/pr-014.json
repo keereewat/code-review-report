@@ -1,0 +1,57 @@
+{
+  "id": "pr-014",
+  "title": "Email Template Service Revamp",
+  "repository": "email-service",
+  "branch": "refactor/template-engine",
+  "commitId": "n9o2p78",
+  "pullRequestId": "PR-1120",
+  "reviewDate": "2026-06-03",
+  "reportedBy": "Daniel",
+  "summary": {
+    "overview": "This PR refactors the email template service from a monolithic string-concatenation approach to a Razor-based templating engine with layout inheritance and reusable components. The migration preserves all existing templates while introducing a structured authoring model for new ones. Code quality is high with good separation between template rendering and email delivery concerns.",
+    "score": 89
+  },
+  "filesChanged": [
+    { "file": "src/Templates/RazorTemplateEngine.cs", "additions": 178, "deletions": 0 },
+    { "file": "src/Templates/TemplateResolver.cs", "additions": 94, "deletions": 0 },
+    { "file": "src/Templates/LayoutInheritanceHandler.cs", "additions": 112, "deletions": 0 },
+    { "file": "src/Templates/Legacy/StringTemplateAdapter.cs", "additions": 67, "deletions": 0 },
+    { "file": "src/Delivery/EmailComposer.cs", "additions": 43, "deletions": 128 },
+    { "file": "tests/Templates/RazorTemplateEngineTests.cs", "additions": 198, "deletions": 0 }
+  ],
+  "riskAssessment": {
+    "level": "Low",
+    "summary": "The refactoring introduces a new rendering engine alongside the existing one with an adapter pattern for backward compatibility. The legacy string-based templates continue to work unchanged, and the new Razor engine is opt-in per template, minimizing blast radius.",
+    "items": [
+      "Razor template compilation occurs at runtime, which could introduce latency on first render if templates are not pre-compiled",
+      "The legacy adapter maps old template placeholders to Razor model properties, and any unmapped placeholder will silently render as empty"
+    ]
+  },
+  "codeReview": {
+    "strengths": [
+      "Adapter pattern for legacy templates ensures zero disruption to existing email flows during the migration period",
+      "Template resolver supports multiple lookup strategies including convention-based, explicit path, and embedded resource fallback",
+      "Layout inheritance implementation is clean and supports nested layouts up to a configurable depth to prevent infinite recursion",
+      "Comprehensive test suite validates rendering output for all existing production templates against their expected HTML baselines"
+    ],
+    "issues": [
+      {
+        "severity": "Medium",
+        "file": "src/Templates/RazorTemplateEngine.cs",
+        "message": "Compiled templates are cached in a static ConcurrentDictionary without any eviction policy, which will grow unbounded if template variants are generated dynamically with unique keys.",
+        "recommendation": "Introduce a bounded cache with an LRU eviction policy or use IMemoryCache with size limits and sliding expiration. Add a metric to track cache hit rates and size growth in production."
+      },
+      {
+        "severity": "Low",
+        "file": "src/Templates/Legacy/StringTemplateAdapter.cs",
+        "message": "Unmapped placeholders in legacy templates are silently replaced with empty strings, which could cause customer-facing emails to render with missing personalization data without any alert.",
+        "recommendation": "Log a warning when an unmapped placeholder is encountered and consider adding a validation step that checks all placeholders in a template have corresponding model properties before rendering."
+      }
+    ]
+  },
+  "recommendations": [
+    "Add a startup pre-compilation step for all registered Razor templates to eliminate first-render latency in production",
+    "Implement a template preview endpoint that renders templates with sample data for QA verification before deployment",
+    "Create a migration guide for the team documenting how to convert existing string-based templates to the new Razor format"
+  ]
+}
