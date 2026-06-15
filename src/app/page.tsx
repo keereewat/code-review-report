@@ -2,6 +2,8 @@ import { getAllReports } from "@/lib/report-loader"
 import { ReportListClient } from "@/components/report/ReportListClient"
 import { Sparkles, Download } from "lucide-react"
 
+const projectName = process.env.NEXT_PUBLIC_PROJECT_NAME
+
 export default function HomePage() {
   const reports = getAllReports()
 
@@ -11,13 +13,16 @@ export default function HomePage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             Code Review Reports
+            {projectName && (
+              <span className="text-muted-foreground font-normal">- {projectName}</span>
+            )}
             <Sparkles className="h-7 w-7 text-violet-500" />
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             AI-generated code review reports for pull request analysis.
           </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted transition-colors">
+        <button type="button" className="flex items-center gap-2 rounded-lg border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted transition-colors">
           <Download className="h-4 w-4" />
           Export Report
         </button>

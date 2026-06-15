@@ -1,8 +1,10 @@
 import type { Metadata } from "next"
 import "./globals.css"
 
+const projectName = process.env.NEXT_PUBLIC_PROJECT_NAME
+
 export const metadata: Metadata = {
-  title: "Code Review Reports",
+  title: projectName ? `Code Review Reports - ${projectName}` : "Code Review Reports",
   description: "AI-generated code review reports for pull request analysis",
 }
 
